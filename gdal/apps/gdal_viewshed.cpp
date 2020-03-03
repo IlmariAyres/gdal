@@ -260,7 +260,7 @@ MAIN_START(argc, argv)
                          dfVisibleVal, dfInvisibleVal,
                          dfOutOfRangeVal, dfNoDataVal, dfCurvCoeff,
                          GVM_Edge, dfMaxDistance,
-                         pfnProgress, nullptr, nullptr);
+                         pfnProgress, nullptr, GVOT_NORMAL, nullptr);
     bool bSuccess = hDstDS != nullptr;
     GDALClose( hSrcDS );
     GDALClose( hDstDS );

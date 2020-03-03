@@ -128,7 +128,7 @@ inline static double CalcHeight(double dfZ, double dfZ2, GDALViewshedMode eMode)
  * generated in a single scan.
  * The gdal/apps/gdal_viewshed.cpp mainline can be used as an example of
  * how to use this function.
- * The output raster will be of type Byte (or Float64 with certain extra arguments).
+ * The output raster will be of type Byte or Float64.
  *
  * \note The algorithm as implemented currently will only output meaningful results
  * if the georeferencing is in a projected coordinate reference system.
@@ -180,21 +180,16 @@ inline static double CalcHeight(double dfZ, double dfZ2, GDALViewshedMode eMode)
  *
  * @param pProgressArg The callback data for the pfnProgress function.
  *
- * @param papszExtraOptions List of options
+ * @param heightMode Type of information contained in output raster. Possible values
+ *                   GVOT_NORMAL = 1 (default), GVOT_MIN_TARGET_HEIGHT_FROM_DEM = 2,
+ *                   GVOT_MIN_TARGET_HEIGHT_FROM_GROUND = 3
  *
- * Options:
+ *                   GVOT_NORMAL returns a raster of type Byte containing visible locations.
  *
- *   MINIMUM_HEIGHT=i
- *
- * If not set or set to 0, default behaviour will occur.
- *
- * If set to 1 will instead return a dataset containing minimum target height from
- * DEM surface for target to be visible. Parameters dfTargetHeight, dfVisibleVal and
- * dfInvisibleVal will there fore be ignored. The output dataset will be of type Float64.
- *
- * If set to 2 will instead return a dataset containing minimum target height from
- * ground level for target to be visible. Parameters dfTargetHeight, dfVisibleVal and
- * dfInvisibleVal will there fore be ignored. The output dataset will be of type Float64.
+ *                   GVOT_MIN_TARGET_HEIGHT_FROM_DEM and GVOT_MIN_TARGET_HEIGHT_FROM_GROUND
+ *                   will return a raster of type Float64 containing the minimum target height
+ *                   for target to be visible from the DEM surface or ground level respectively.
+ *                   Parameters dfTargetHeight, dfVisibleVal and dfInvisibleVal will be ignored.
  *
  *
  * @return not NULL output dataset on success (to be closed with GDALClose()) or NULL if an error occurs.
@@ -210,7 +205,8 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                     double dfTargetHeight, double dfVisibleVal, double dfInvisibleVal,
                     double dfOutOfRangeVal, double dfNoDataVal, double dfCurvCoeff,
                     GDALViewshedMode eMode, double dfMaxDistance,
-                    GDALProgressFunc pfnProgress, void *pProgressArg, CSLConstList papszExtraOptions)
+                    GDALProgressFunc pfnProgress, void *pProgressArg,
+                    GDALViewshedOutputType heightMode, CSLConstList papszExtraOptions)
 
 {
     VALIDATE_POINTER1( hBand, "GDALViewshedGenerate", nullptr );
@@ -227,14 +223,13 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         return nullptr;
     }
 
-    GByte byReturnMinHeight;
-    const char* opt = CSLFetchNameValue( papszExtraOptions, "MINIMUM_HEIGHT" );
-    byReturnMinHeight = opt ? CPLAtoGIntBig( opt ) : 0;
-
     const GByte byNoDataVal = dfNoDataVal >= 0 && dfNoDataVal <= 255 ? static_cast<GByte>(dfNoDataVal) : 0;
     const GByte byVisibleVal = dfVisibleVal >= 0 && dfVisibleVal <= 255 ? static_cast<GByte>(dfVisibleVal) : 255;
     const GByte byInvisibleVal = dfInvisibleVal >= 0 && dfInvisibleVal <= 255 ? static_cast<GByte>(dfInvisibleVal) : 0;
     const GByte byOutOfRangeVal = dfOutOfRangeVal >= 0 && dfOutOfRangeVal <= 255 ? static_cast<GByte>(dfOutOfRangeVal) : 0;
+
+    if(heightMode != GVOT_MIN_TARGET_HEIGHT_FROM_DEM && heightMode != GVOT_MIN_TARGET_HEIGHT_FROM_GROUND)
+        heightMode = GVOT_NORMAL;
 
     /* set up geotransformation */
     std::array<double, 6> adfGeoTransform {{0.0, 1.0, 0.0, 0.0, 0.0, 1.0}};
@@ -290,7 +285,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         vThisLineVal.resize(nXSize);
         vResult.resize(nXSize);
 
-        if(byReturnMinHeight)
+        if(heightMode != GVOT_NORMAL)
             vHeightResult.resize(nXSize);
     } catch (...)
     {
@@ -314,7 +309,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
     }
 
     /* create output raster */
-    auto poDstDS = std::unique_ptr<GDALDataset>(hDriver->Create(pszTargetRasterName, nXSize, nYStop - nYStart, 1, byReturnMinHeight ? GDT_Float64 : GDT_Byte,
+    auto poDstDS = std::unique_ptr<GDALDataset>(hDriver->Create(pszTargetRasterName, nXSize, nYStop - nYStart, 1, heightMode != GVOT_NORMAL ? GDT_Float64 : GDT_Byte,
                                                 const_cast<char**>(papszCreationOptions)));
     if (!poDstDS)
     {
@@ -344,7 +339,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
     }
 
     if (dfNoDataVal >= 0)
-        GDALSetRasterNoDataValue(hTargetBand, byReturnMinHeight ? dfNoDataVal : byNoDataVal);
+        GDALSetRasterNoDataValue(hTargetBand, heightMode != GVOT_NORMAL ? dfNoDataVal : byNoDataVal);
 
     /* process first line */
     if (GDALRasterIO(hBand, GF_Read, nXStart, nY, nXSize, 1,
@@ -378,14 +373,14 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
     }
 
     /* mark the observer point as visible */
-    double dfGroundLevel = byReturnMinHeight == 1 ? padfFirstLineVal[nX] : 0.0;
+    double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[nX] : 0.0;
     pabyResult[nX] = byVisibleVal;
-    if(byReturnMinHeight)
+    if(heightMode != GVOT_NORMAL)
         dfHeightResult[nX] = dfGroundLevel;
 
     if (nX > 0)
     {
-        double dfGroundLevel = byReturnMinHeight == 1 ? padfFirstLineVal[nX - 1] : 0.0;
+        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[nX - 1] : 0.0;
         CPL_IGNORE_RET_VAL(
             AdjustHeightInRange(adfGeoTransform.data(),
                             1,
@@ -395,12 +390,12 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                             dfCurvCoeff,
                             dfSphereDiameter));
         pabyResult[nX - 1] = byVisibleVal;
-        if(byReturnMinHeight)
+        if(heightMode != GVOT_NORMAL)
             dfHeightResult[nX - 1] = dfGroundLevel;
     }
     if (nX < nXSize - 1)
     {
-        double dfGroundLevel = byReturnMinHeight == 1 ? padfFirstLineVal[nX + 1] : 0.0;
+        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[nX + 1] : 0.0;
         CPL_IGNORE_RET_VAL(
             AdjustHeightInRange(adfGeoTransform.data(),
                             1,
@@ -410,14 +405,14 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                             dfCurvCoeff,
                             dfSphereDiameter));
         pabyResult[nX + 1] = byVisibleVal;
-        if(byReturnMinHeight)
+        if(heightMode != GVOT_NORMAL)
             dfHeightResult[nX + 1] = dfGroundLevel;
     }
 
     /* process left direction */
     for (int iPixel = nX - 2; iPixel >= 0; iPixel--)
     {
-        double dfGroundLevel = byReturnMinHeight == 1 ? padfFirstLineVal[iPixel] : 0.0;
+        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[iPixel] : 0.0;
         bool adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                             nX - iPixel,
                                             0,
@@ -431,7 +426,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                                  padfFirstLineVal[iPixel + 1],
                                  dfZObserver);
 
-            if(byReturnMinHeight)
+            if(heightMode != GVOT_NORMAL)
                 dfHeightResult[iPixel] = std::max(0.0, (dfZ - padfFirstLineVal[iPixel] + dfGroundLevel));
 
             SetVisibility(  iPixel,
@@ -447,7 +442,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
             for (; iPixel >= 0; iPixel--)
             {
                 pabyResult[iPixel] = byOutOfRangeVal;
-                if(byReturnMinHeight)
+                if(heightMode != GVOT_NORMAL)
                     dfHeightResult[iPixel] = dfOutOfRangeVal;
             }
         }
@@ -455,7 +450,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
     /* process right direction */
     for (int iPixel = nX + 2; iPixel < nXSize; iPixel++)
     {
-        double dfGroundLevel = byReturnMinHeight == 1 ? padfFirstLineVal[iPixel] : 0.0;
+        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[iPixel] : 0.0;
         bool adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                             iPixel - nX,
                                             0,
@@ -469,7 +464,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                                  padfFirstLineVal[iPixel - 1],
                                  dfZObserver);
 
-            if(byReturnMinHeight)
+            if(heightMode != GVOT_NORMAL)
                 dfHeightResult[iPixel] = std::max(0.0, (dfZ - padfFirstLineVal[iPixel] + dfGroundLevel));
 
             SetVisibility(iPixel,
@@ -485,7 +480,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
             for (; iPixel < nXSize; iPixel++)
             {
                 pabyResult[iPixel] = byOutOfRangeVal;
-                if(byReturnMinHeight)
+                if(heightMode != GVOT_NORMAL)
                     dfHeightResult[iPixel] = dfOutOfRangeVal;
             }
         }
@@ -493,7 +488,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
     /* write result line */
 
     if (GDALRasterIO(hTargetBand, GF_Write, 0, nY - nYStart, nXSize, 1,
-        byReturnMinHeight ? (void*)dfHeightResult : (void*)pabyResult, nXSize, 1, byReturnMinHeight ? GDT_Float64 : GDT_Byte, 0, 0))
+        heightMode != GVOT_NORMAL ? (void*)dfHeightResult : (void*)pabyResult, nXSize, 1, heightMode != GVOT_NORMAL ? GDT_Float64 : GDT_Byte, 0, 0))
     {
         CPLError(CE_Failure, CPLE_AppDefined,
             "RasterIO error when writing target raster at position (%d,%d), size (%d,%d)", 0, nY - nYStart, nXSize, 1);
@@ -515,7 +510,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         }
 
         /* set up initial point on the scanline */
-        double dfGroundLevel = byReturnMinHeight == 1 ? padfThisLineVal[nX] : 0.0;
+        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[nX] : 0.0;
         bool adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                             0,
                                             nY - iLine,
@@ -529,7 +524,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                                  padfLastLineVal[nX],
                                  dfZObserver);
 
-            if(byReturnMinHeight)
+            if(heightMode != GVOT_NORMAL)
                 dfHeightResult[nX] = std::max(0.0, (dfZ - padfThisLineVal[nX] + dfGroundLevel));
 
             SetVisibility(nX,
@@ -543,14 +538,14 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         else
         {
             pabyResult[nX] = byOutOfRangeVal;
-            if(byReturnMinHeight)
+            if(heightMode != GVOT_NORMAL)
                 dfHeightResult[nX] = dfOutOfRangeVal;
         }
 
         /* process left direction */
         for (int iPixel = nX - 1; iPixel >= 0; iPixel--)
         {
-            double dfGroundLevel = byReturnMinHeight == 1 ? padfThisLineVal[iPixel] : 0.0;
+            double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
             bool left_adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                                      nX - iPixel,
                                                      nY - iLine,
@@ -583,7 +578,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                     dfZ = CalcHeight(dfZ, dfZ2, eMode);
                 }
 
-                if(byReturnMinHeight)
+                if(heightMode != GVOT_NORMAL)
                     dfHeightResult[iPixel] = std::max(0.0, (dfZ - padfThisLineVal[iPixel] + dfGroundLevel));
 
                 SetVisibility(iPixel,
@@ -599,7 +594,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                 for (; iPixel >= 0; iPixel--)
                 {
                     pabyResult[iPixel] = byOutOfRangeVal;
-                    if(byReturnMinHeight)
+                    if(heightMode != GVOT_NORMAL)
                         dfHeightResult[iPixel] = dfOutOfRangeVal;
                 }
             }
@@ -607,7 +602,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         /* process right direction */
         for (int iPixel = nX + 1; iPixel < nXSize; iPixel++)
         {
-            double dfGroundLevel = byReturnMinHeight == 1 ? padfThisLineVal[iPixel] : 0.0;
+            double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
             bool right_adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                                       iPixel - nX,
                                                       nY - iLine,
@@ -640,7 +635,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                     dfZ = CalcHeight(dfZ, dfZ2, eMode);
                 }
 
-                if(byReturnMinHeight)
+                if(heightMode != GVOT_NORMAL)
                     dfHeightResult[iPixel] = std::max(0.0, (dfZ - padfThisLineVal[iPixel] + dfGroundLevel));
 
                 SetVisibility(iPixel,
@@ -656,7 +651,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                 for (; iPixel < nXSize; iPixel++)
                 {
                     pabyResult[iPixel] = byOutOfRangeVal;
-                    if(byReturnMinHeight)
+                    if(heightMode != GVOT_NORMAL)
                         dfHeightResult[iPixel] = dfOutOfRangeVal;
                 }
             }
@@ -664,7 +659,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
 
         /* write result line */
         if (GDALRasterIO(hTargetBand, GF_Write, 0, iLine - nYStart, nXSize, 1,
-            byReturnMinHeight ? (void*)dfHeightResult : (void*)pabyResult, nXSize, 1, byReturnMinHeight ? GDT_Float64 : GDT_Byte, 0, 0))
+            heightMode != GVOT_NORMAL ? (void*)dfHeightResult : (void*)pabyResult, nXSize, 1, heightMode != GVOT_NORMAL ? GDT_Float64 : GDT_Byte, 0, 0))
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                 "RasterIO error when writing target raster at position (%d,%d), size (%d,%d)", 0, iLine - nYStart, nXSize, 1);
@@ -693,7 +688,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         }
 
         /* set up initial point on the scanline */
-        double dfGroundLevel = byReturnMinHeight == 1 ? padfThisLineVal[nX] : 0.0;
+        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[nX] : 0.0;
         bool adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                             0,
                                             iLine - nY,
@@ -707,7 +702,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                                  padfLastLineVal[nX],
                                  dfZObserver);
 
-            if(byReturnMinHeight)
+            if(heightMode != GVOT_NORMAL)
                 dfHeightResult[nX] = std::max(0.0, (dfZ - padfThisLineVal[nX] + dfGroundLevel));
 
             SetVisibility(nX,
@@ -721,14 +716,14 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         else
         {
             pabyResult[nX] = byOutOfRangeVal;
-            if(byReturnMinHeight)
+            if(heightMode != GVOT_NORMAL)
                 dfHeightResult[nX] = dfOutOfRangeVal;
         }
 
         /* process left direction */
         for (int iPixel = nX - 1; iPixel >= 0; iPixel--)
         {
-            double dfGroundLevel = byReturnMinHeight == 1 ? padfThisLineVal[iPixel] : 0.0;
+            double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
             bool left_adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                                      nX - iPixel,
                                                      iLine - nY,
@@ -758,7 +753,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                     dfZ = CalcHeight(dfZ, dfZ2, eMode);
                 }
 
-                if(byReturnMinHeight)
+                if(heightMode != GVOT_NORMAL)
                     dfHeightResult[iPixel] = std::max(0.0, (dfZ - padfThisLineVal[iPixel] + dfGroundLevel));
 
                 SetVisibility(iPixel,
@@ -774,7 +769,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                 for (; iPixel >= 0; iPixel--)
                 {
                     pabyResult[iPixel] = byOutOfRangeVal;
-                    if(byReturnMinHeight)
+                    if(heightMode != GVOT_NORMAL)
                         dfHeightResult[iPixel] = dfOutOfRangeVal;
                 }
             }
@@ -782,7 +777,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         /* process right direction */
         for (int iPixel = nX + 1; iPixel < nXSize; iPixel++)
         {
-            double dfGroundLevel = byReturnMinHeight == 1 ? padfThisLineVal[iPixel] : 0.0;
+            double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
             bool right_adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                                       iPixel - nX,
                                                       iLine - nY,
@@ -815,7 +810,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                     dfZ = CalcHeight(dfZ, dfZ2, eMode);
                 }
 
-                if(byReturnMinHeight)
+                if(heightMode != GVOT_NORMAL)
                     dfHeightResult[iPixel] = std::max(0.0, (dfZ - padfThisLineVal[iPixel] + dfGroundLevel));
 
                 SetVisibility(iPixel,
@@ -831,7 +826,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
                 for (; iPixel < nXSize; iPixel++)
                 {
                     pabyResult[iPixel] = byOutOfRangeVal;
-                    if(byReturnMinHeight)
+                    if(heightMode != GVOT_NORMAL)
                         dfHeightResult[iPixel] = dfOutOfRangeVal;
                 }
             }
@@ -839,7 +834,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
 
         /* write result line */
         if (GDALRasterIO(hTargetBand, GF_Write, 0, iLine - nYStart, nXSize, 1,
-            byReturnMinHeight ? (void*)dfHeightResult : (void*)pabyResult, nXSize, 1, byReturnMinHeight ? GDT_Float64 : GDT_Byte, 0, 0))
+            heightMode != GVOT_NORMAL ? (void*)dfHeightResult : (void*)pabyResult, nXSize, 1, heightMode != GVOT_NORMAL ? GDT_Float64 : GDT_Byte, 0, 0))
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                 "RasterIO error when writing target raster at position (%d,%d), size (%d,%d)", 0, iLine - nYStart, nXSize, 1);
