@@ -380,7 +380,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
 
     if (nX > 0)
     {
-        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[nX - 1] : 0.0;
+        dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[nX - 1] : 0.0;
         CPL_IGNORE_RET_VAL(
             AdjustHeightInRange(adfGeoTransform.data(),
                             1,
@@ -395,7 +395,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
     }
     if (nX < nXSize - 1)
     {
-        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[nX + 1] : 0.0;
+        dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[nX + 1] : 0.0;
         CPL_IGNORE_RET_VAL(
             AdjustHeightInRange(adfGeoTransform.data(),
                             1,
@@ -412,7 +412,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
     /* process left direction */
     for (int iPixel = nX - 2; iPixel >= 0; iPixel--)
     {
-        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[iPixel] : 0.0;
+        dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[iPixel] : 0.0;
         bool adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                             nX - iPixel,
                                             0,
@@ -450,7 +450,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
     /* process right direction */
     for (int iPixel = nX + 2; iPixel < nXSize; iPixel++)
     {
-        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[iPixel] : 0.0;
+        dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfFirstLineVal[iPixel] : 0.0;
         bool adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                             iPixel - nX,
                                             0,
@@ -488,7 +488,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
     /* write result line */
 
     if (GDALRasterIO(hTargetBand, GF_Write, 0, nY - nYStart, nXSize, 1,
-        heightMode != GVOT_NORMAL ? (void*)dfHeightResult : (void*)pabyResult, nXSize, 1, heightMode != GVOT_NORMAL ? GDT_Float64 : GDT_Byte, 0, 0))
+        heightMode != GVOT_NORMAL ? static_cast<void*>(dfHeightResult) : static_cast<void*>(pabyResult), nXSize, 1, heightMode != GVOT_NORMAL ? GDT_Float64 : GDT_Byte, 0, 0))
     {
         CPLError(CE_Failure, CPLE_AppDefined,
             "RasterIO error when writing target raster at position (%d,%d), size (%d,%d)", 0, nY - nYStart, nXSize, 1);
@@ -510,7 +510,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         }
 
         /* set up initial point on the scanline */
-        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[nX] : 0.0;
+        dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[nX] : 0.0;
         bool adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                             0,
                                             nY - iLine,
@@ -545,7 +545,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         /* process left direction */
         for (int iPixel = nX - 1; iPixel >= 0; iPixel--)
         {
-            double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
+            dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
             bool left_adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                                      nX - iPixel,
                                                      nY - iLine,
@@ -602,7 +602,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         /* process right direction */
         for (int iPixel = nX + 1; iPixel < nXSize; iPixel++)
         {
-            double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
+            dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
             bool right_adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                                       iPixel - nX,
                                                       nY - iLine,
@@ -659,7 +659,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
 
         /* write result line */
         if (GDALRasterIO(hTargetBand, GF_Write, 0, iLine - nYStart, nXSize, 1,
-            heightMode != GVOT_NORMAL ? (void*)dfHeightResult : (void*)pabyResult, nXSize, 1, heightMode != GVOT_NORMAL ? GDT_Float64 : GDT_Byte, 0, 0))
+            heightMode != GVOT_NORMAL ? static_cast<void*>(dfHeightResult) : static_cast<void*>(pabyResult), nXSize, 1, heightMode != GVOT_NORMAL ? GDT_Float64 : GDT_Byte, 0, 0))
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                 "RasterIO error when writing target raster at position (%d,%d), size (%d,%d)", 0, iLine - nYStart, nXSize, 1);
@@ -688,7 +688,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         }
 
         /* set up initial point on the scanline */
-        double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[nX] : 0.0;
+        dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[nX] : 0.0;
         bool adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                             0,
                                             iLine - nY,
@@ -723,7 +723,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         /* process left direction */
         for (int iPixel = nX - 1; iPixel >= 0; iPixel--)
         {
-            double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
+            dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
             bool left_adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                                      nX - iPixel,
                                                      iLine - nY,
@@ -777,7 +777,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
         /* process right direction */
         for (int iPixel = nX + 1; iPixel < nXSize; iPixel++)
         {
-            double dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
+            dfGroundLevel = heightMode == GVOT_MIN_TARGET_HEIGHT_FROM_DEM ? padfThisLineVal[iPixel] : 0.0;
             bool right_adjusted = AdjustHeightInRange(adfGeoTransform.data(),
                                                       iPixel - nX,
                                                       iLine - nY,
@@ -834,7 +834,7 @@ GDALDatasetH GDALViewshedGenerate(GDALRasterBandH hBand,
 
         /* write result line */
         if (GDALRasterIO(hTargetBand, GF_Write, 0, iLine - nYStart, nXSize, 1,
-            heightMode != GVOT_NORMAL ? (void*)dfHeightResult : (void*)pabyResult, nXSize, 1, heightMode != GVOT_NORMAL ? GDT_Float64 : GDT_Byte, 0, 0))
+            heightMode != GVOT_NORMAL ? static_cast<void*>(dfHeightResult) : static_cast<void*>(pabyResult), nXSize, 1, heightMode != GVOT_NORMAL ? GDT_Float64 : GDT_Byte, 0, 0))
         {
             CPLError(CE_Failure, CPLE_AppDefined,
                 "RasterIO error when writing target raster at position (%d,%d), size (%d,%d)", 0, iLine - nYStart, nXSize, 1);
