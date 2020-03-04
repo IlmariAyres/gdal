@@ -192,6 +192,8 @@ inline static double CalcHeight(double dfZ, double dfZ2, GDALViewshedMode eMode)
  *                   Parameters dfTargetHeight, dfVisibleVal and dfInvisibleVal will be ignored.
  *
  *
+ * @param papszExtraOptions Future extra options. Must be set to NULL currently.
+ *
  * @return not NULL output dataset on success (to be closed with GDALClose()) or NULL if an error occurs.
  *
  * @since GDAL 3.1
